@@ -13,7 +13,17 @@ const LEFT = 8;
 
 const NODE_SIZE = 20;
 const NODE_GAP = 10;
-const CONNECTTION_WIDTH = 5;
+const CONNECTION_WIDTH = 2;
+
+const PALETTE = [
+  "#4e79a7", // blue
+  "#f28e2b", // orange
+  "#e15759", // red
+  "#76b7b2", // teal
+  "#59a14f", // green
+  "#edc949"  // yellow
+];
+
 
 const arr = (n) => Array.from({ length: n }, () => null);
 const rnd = (n) => Math.floor(Math.random() * n);
@@ -36,6 +46,7 @@ const pickConnection = (x, y, xdim, ydim) => {
 
     return num;
 };
+const key = (arr) => arr.flatMap((x) => x).join('');
 
 const init = () => {
     const canvas = document.querySelector('canvas');
@@ -53,7 +64,11 @@ const init = () => {
         connections: arr(ydim).map((_, y) => arr(xdim).map((_, x) => pickConnection(x, y, xdim, ydim))),
         xdim,
         ydim,
-        paused: false
+        paused: false,
+        history: [],
+        map: new Map(),
+        cycleStart: null,
+        cycleIndex: 0
     };
 
     window.addEventListener('resize', () => {
@@ -84,8 +99,35 @@ const applyOp = (op, inputs) => {
     }
 };
 
+const detectFrozenNodes = (history) => {
+    const mask = history[0].map((row) => row.map(() => -1));
+
+    for (let f = 1; f < history.length; f++) {
+        const frame = history[f];
+
+        for (let y = 0; y < frame.length; y++) {
+            const row = frame[y];
+            
+            for (let x = 0; x < row.length; x++) {
+                if (row[x] !== history[0][y][x]) {
+                    mask[y][x] = 0;
+                }
+            }
+        }
+    }
+
+    return mask;
+};
+
 const update = (state) => {
-    const { nodes, values, connections, xdim, ydim } = state;
+    const { nodes, values, connections, xdim, ydim, history, cycleStart, cycleIndex } = state;
+
+    if (cycleStart !== null) {
+        state.values = history[cycleIndex];
+        state.cycleIndex = (cycleIndex + 1 - cycleStart) % (history.length - cycleStart) + cycleStart;
+
+        return state;
+    }
 
     const newValues = arr(ydim).map(() => arr(xdim).map(() => 0));
 
@@ -105,13 +147,26 @@ const update = (state) => {
         }
     }
 
-    state.values = newValues;
+    const valuesKey = key(newValues);
+
+    if (state.map.has(valuesKey)) {
+        state.cycleStart = state.map.get(valuesKey);
+        state.values = state.history[state.cycleStart];
+        state.frozenMask = detectFrozenNodes(history.slice(state.cycleStart));
+        state.cycleIndex = state.cycleStart;
+
+        console.log(`Cycle detected! Length: ${state.history.length - state.cycleStart}`);
+    } else {
+        state.history.push(newValues);
+        state.values = newValues;
+        state.map.set(valuesKey, state.history.length);
+    }
 
     return state;
 };
 
 const render = (state, ctx) => {
-    const { canvas, nodes, values, connections, xdim, ydim } = state;
+    const { canvas, nodes, values, connections, xdim, ydim, frozenMask } = state;
 
     const boardWidth = xdim * (NODE_SIZE + NODE_GAP) - NODE_GAP;
     const boardHeight = ydim * (NODE_SIZE + NODE_GAP) - NODE_GAP;
@@ -122,11 +177,20 @@ const render = (state, ctx) => {
     ctx.clearRect(0, 0, canvas.width, canvas.height);
     ctx.translate(offsetX, offsetY);
 
-    ctx.strokeStyle = '#000';
-
     for (let y = 0; y < ydim; y++) {
         for (let x = 0; x < xdim; x++) {
-            ctx.fillStyle = values[y][x] ? '#000' : '#fff';
+            if (frozenMask && frozenMask[y][x] === -1) {
+                continue;
+            }
+
+            const color = frozenMask ? PALETTE[frozenMask[y][x]] : '#000';
+            
+            if (frozenMask && values[y][x]) {
+                state.frozenMask[y][x] = (frozenMask[y][x] + 1) % PALETTE.length;
+            }
+
+            ctx.strokeStyle = color;
+            ctx.fillStyle = values[y][x] ? color : '#fff';
 
             ctx.beginPath();
             ctx.rect(x * (NODE_SIZE + NODE_GAP) + 0.5, y * (NODE_SIZE + NODE_GAP) + 0.5, NODE_SIZE, NODE_SIZE);
@@ -145,40 +209,38 @@ const render = (state, ctx) => {
 
     for (let y = 0; y < ydim; y++) {
         for (let x = 0; x < xdim; x++) {
-            ctx.fillStyle = '#000';
-
-            if (UP & connections[y][x]) {
-                ctx.fillRect(
-                    x * (NODE_SIZE + NODE_GAP) + (NODE_SIZE / 2) - (3 * CONNECTTION_WIDTH / 2) + 0.5,
-                    y * (NODE_SIZE + NODE_GAP) - NODE_GAP + 0.5,
-                    CONNECTTION_WIDTH, NODE_GAP);
+            if (frozenMask && frozenMask[y][x] === -1) {
+                continue;
             }
 
-            ctx.fillStyle = '#000';
+            ctx.fillStyle = frozenMask ? 'gray' : '#000';
 
-            if (RIGHT & connections[y][x]) {
+            if (UP & connections[y][x] && (!frozenMask || frozenMask?.[y - 1]?.[x] > -1)) {
+                ctx.fillRect(
+                    x * (NODE_SIZE + NODE_GAP) + (NODE_SIZE / 2) - (3 * CONNECTION_WIDTH / 2) + 0.5,
+                    y * (NODE_SIZE + NODE_GAP) - NODE_GAP + 0.5,
+                    CONNECTION_WIDTH, NODE_GAP);
+            }
+
+            if (RIGHT & connections[y][x] && (!frozenMask || frozenMask?.[y]?.[x + 1] > -1)) {
                 ctx.fillRect(
                     x * (NODE_SIZE + NODE_GAP) + NODE_SIZE + 0.5,
-                    y * (NODE_SIZE + NODE_GAP) + (NODE_SIZE / 2) - (3 * CONNECTTION_WIDTH / 2) + 0.5,
-                    NODE_GAP, CONNECTTION_WIDTH);
+                    y * (NODE_SIZE + NODE_GAP) + (NODE_SIZE / 2) - (3 * CONNECTION_WIDTH / 2) + 0.5,
+                    NODE_GAP, CONNECTION_WIDTH);
             }
 
-            ctx.fillStyle = '#000';
-
-            if (DOWN & connections[y][x]) {
+            if (DOWN & connections[y][x] && (!frozenMask || frozenMask?.[y + 1]?.[x] > -1)) {
                 ctx.fillRect(
-                    x * (NODE_SIZE + NODE_GAP) + (NODE_SIZE / 2) + (CONNECTTION_WIDTH / 2) + 0.5,
+                    x * (NODE_SIZE + NODE_GAP) + (NODE_SIZE / 2) + (CONNECTION_WIDTH / 2) + 0.5,
                     y * (NODE_SIZE + NODE_GAP) + NODE_SIZE + 0.5,
-                    CONNECTTION_WIDTH, NODE_GAP);
+                    CONNECTION_WIDTH, NODE_GAP);
             }
 
-            ctx.fillStyle = '#000';
-
-            if (LEFT & connections[y][x]) {
+            if (LEFT & connections[y][x] && (!frozenMask || frozenMask?.[y]?.[x - 1] > -1)) {
                 ctx.fillRect(
                     x * (NODE_SIZE + NODE_GAP) - NODE_GAP + 0.5,
-                    y * (NODE_SIZE + NODE_GAP) + (NODE_SIZE / 2) + (CONNECTTION_WIDTH / 2) + 0.5,
-                    NODE_GAP, CONNECTTION_WIDTH);
+                    y * (NODE_SIZE + NODE_GAP) + (NODE_SIZE / 2) + (CONNECTION_WIDTH / 2) + 0.5,
+                    NODE_GAP, CONNECTION_WIDTH);
             }
         }
     }
@@ -198,7 +260,7 @@ const run = () => {
 
         if (lastTs) fps = Math.round(1000 / (ts - lastTs));
 
-        if (ts - lastTs > 500 && !state.paused) {
+        if ((state.cycleStart === null || ts - lastTs > 250) && !state.paused) {
             const ctx = canvas.getContext('2d');
             
             state = update(state);
