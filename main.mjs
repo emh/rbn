@@ -16,12 +16,10 @@ const NODE_GAP = 10;
 const CONNECTION_WIDTH = 2;
 
 const PALETTE = [
-  "#4e79a7", // blue
-  "#f28e2b", // orange
-  "#e15759", // red
-  "#76b7b2", // teal
-  "#59a14f", // green
-  "#edc949"  // yellow
+    "#ffffff", // white
+    "#4e79a7", // blue
+    "#e15759", // red
+    "#edc949"  // yellow
 ];
 
 
@@ -29,7 +27,7 @@ const arr = (n) => Array.from({ length: n }, () => null);
 const rnd = (n) => Math.floor(Math.random() * n);
 
 const pickOperator = () => OPS[rnd(OPS.length)];
-const pickValue = () => rnd(2);
+const pickValue = () => rnd(PALETTE.length);
 const pickConnection = (x, y, xdim, ydim) => {
     const bits = [];
     if (y > 0) bits.push(UP);
@@ -107,7 +105,7 @@ const detectFrozenNodes = (history) => {
 
         for (let y = 0; y < frame.length; y++) {
             const row = frame[y];
-            
+
             for (let x = 0; x < row.length; x++) {
                 if (row[x] !== history[0][y][x]) {
                     mask[y][x] = 0;
@@ -183,13 +181,9 @@ const render = (state, ctx) => {
                 continue;
             }
 
-            const color = frozenMask ? PALETTE[frozenMask[y][x]] : '#000';
-            
-            if (frozenMask && values[y][x]) {
-                state.frozenMask[y][x] = (frozenMask[y][x] + 1) % PALETTE.length;
-            }
+            const color = frozenMask ? PALETTE[values[y][x]] : '#000';
 
-            ctx.strokeStyle = color;
+            ctx.strokeStyle = values[y][x] ? color : '#000';
             ctx.fillStyle = values[y][x] ? color : '#fff';
 
             ctx.beginPath();
@@ -260,9 +254,9 @@ const run = () => {
 
         if (lastTs) fps = Math.round(1000 / (ts - lastTs));
 
-        if ((state.cycleStart === null || ts - lastTs > 250) && !state.paused) {
+        if ((state.cycleStart === null || ts - lastTs > 500) && !state.paused) {
             const ctx = canvas.getContext('2d');
-            
+
             state = update(state);
             render(state, ctx);
 
